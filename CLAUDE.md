@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Full-stack application with a Node.js/Express REST API backend and an Angular 19 standalone-component frontend. The app manages a simple Items CRUD resource.
+Full-stack application with a Node.js/Express REST API backend and an Angular 19 standalone-component frontend. The app manages a simple Items CRUD resource with SQLite persistence.
 
 ## Architecture
 
@@ -12,11 +12,11 @@ Full-stack application with a Node.js/Express REST API backend and an Angular 19
 server/          → Express API (port 3000)
   src/
     index.js     → App entry point, middleware setup, route mounting
+    db.js        → SQLite database init (better-sqlite3), table creation, seeding
     routes/      → Express route handlers (one file per resource)
-    models/      → Data models
-    middleware/  → Custom Express middleware
     config/      → Environment-based configuration
   __tests__/     → Jest test files (supertest for HTTP assertions)
+  data.db        → SQLite database file (gitignored)
 
 client/          → Angular 19 app (port 4200)
   src/app/
@@ -27,7 +27,11 @@ client/          → Angular 19 app (port 4200)
   proxy.conf.json → Dev proxy: /api/* → localhost:3000
 ```
 
-**Key pattern:** The Angular dev server proxies `/api/*` requests to the Express backend, so services use relative URLs like `/api/items` (no hardcoded host). All Angular components use standalone component architecture (no NgModules).
+**Key patterns:**
+- The Angular dev server proxies `/api/*` requests to the Express backend, so services use relative URLs like `/api/items` (no hardcoded host)
+- All Angular components use standalone component architecture (no NgModules)
+- App runs **zoneless** (`provideExperimentalZonelessChangeDetection`) — use `ChangeDetectorRef.markForCheck()` after async operations to trigger rendering
+- SQLite database uses WAL mode; prepared statements are defined at module level in route files
 
 ## Commands
 
@@ -64,5 +68,7 @@ Environment variables loaded via `dotenv` from `server/.env` (copy `.env.example
 
 - **Server exports `app`** from `index.js` for testability (supertest imports it directly without starting the listener)
 - **Angular uses standalone components** — no `app.module.ts`; providers are configured in `main.ts` via `bootstrapApplication`
+- **Zoneless change detection** — no `zone.js`; components must manually trigger change detection after async data updates
 - **Angular routing** defined in `app.routes.ts`, injected via `provideRouter`
 - **TypeScript strict mode** is enabled in the client (`tsconfig.json`)
+- **Database** is SQLite via `better-sqlite3` (synchronous API); `data.db` is gitignored
