@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Full-stack application with a Node.js/Express REST API backend and an Angular 19 standalone-component frontend. The app manages a simple Items CRUD resource with SQLite persistence.
+Full-stack application with a Node.js/Express REST API backend and an Angular 19 standalone-component frontend. The app manages a simple Items CRUD resource with SQLite persistence. Both frontend and backend share a consistent black & blue dark theme.
 
 ## Architecture
 
 ```
 server/          → Express API (port 3000)
   src/
-    index.js     → App entry point, middleware setup, route mounting
+    index.js     → App entry point, middleware setup, route mounting, admin HTML page
     db.js        → SQLite database init (better-sqlite3), table creation, seeding
     routes/      → Express route handlers (one file per resource)
     config/      → Environment-based configuration
@@ -32,6 +32,20 @@ client/          → Angular 19 app (port 4200)
 - All Angular components use standalone component architecture (no NgModules)
 - App runs **zoneless** (`provideExperimentalZonelessChangeDetection`) — use `ChangeDetectorRef.markForCheck()` after async operations to trigger rendering
 - SQLite database uses WAL mode; prepared statements are defined at module level in route files
+- Backend has an **admin HTML page** at `GET /` showing all items in a table with a "DELETE ALL ITEMS" button
+- API responses for create/delete include a `message` field (e.g. `"Item was successfully added"`)
+
+## API Endpoints
+
+- `GET /api/items` — list all items
+- `GET /api/items/:id` — get single item
+- `POST /api/items` — create item (returns `{ message, item }`)
+- `PUT /api/items/:id` — update item
+- `DELETE /api/items/:id` — delete item (returns `{ message }`)
+- `DELETE /api/items/all` — delete all items (returns `{ message }`)
+- `GET /api/health` — health check
+- `GET /` — admin HTML dashboard
+- `POST /admin/clear-all` — clear all items (form action, redirects to `/`)
 
 ## Commands
 
@@ -63,6 +77,13 @@ Start server (`npm run dev` in `server/`) and client (`npm start` in `client/`) 
 Environment variables loaded via `dotenv` from `server/.env` (copy `.env.example` to `.env`):
 - `PORT` — API port (default: 3000)
 - `CLIENT_URL` — CORS origin (default: http://localhost:4200)
+
+## UI Theme
+
+Both frontend and backend use a consistent **black & blue** dark theme:
+- Background: `#0a0a1a`, Cards/rows: `#0d1b2a`, Accent: `#1e90ff`
+- Mobile responsive (stacks vertically on screens < 480px)
+- Frontend shows toast notifications for add/delete/clear actions
 
 ## Conventions
 
