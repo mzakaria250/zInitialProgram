@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Item } from '../models/item.model';
 
@@ -14,20 +14,34 @@ export class ItemService {
 
   constructor(private http: HttpClient) {}
 
-  getItems(): Observable<Item[]> {
-    return this.http.get<Item[]>(this.apiUrl);
+  getItems(locationId?: number, includeChildren?: boolean, unsorted?: boolean): Observable<Item[]> {
+    let params = new HttpParams();
+    if (unsorted) params = params.set('unsorted', 'true');
+    else if (locationId) {
+      params = params.set('location_id', locationId.toString());
+      if (includeChildren) params = params.set('include_children', 'true');
+    }
+    return this.http.get<Item[]>(this.apiUrl, { params });
   }
 
   getItem(id: number): Observable<Item> {
     return this.http.get<Item>(`${this.apiUrl}/${id}`);
   }
 
-  createItem(item: Partial<Item>): Observable<ApiMessage> {
-    return this.http.post<ApiMessage>(this.apiUrl, item);
+  createItem(formData: FormData): Observable<ApiMessage> {
+    return this.http.post<ApiMessage>(this.apiUrl, formData);
   }
 
-  updateItem(id: number, item: Partial<Item>): Observable<Item> {
-    return this.http.put<Item>(`${this.apiUrl}/${id}`, item);
+  updateItem(id: number, data: { name?: string; description?: string; location_id?: number | null; tags?: string[] }): Observable<ApiMessage> {
+    return this.http.put<ApiMessage>(`${this.apiUrl}/${id}`, data);
+  }
+
+  addPhotos(itemId: number, formData: FormData): Observable<ApiMessage> {
+    return this.http.post<ApiMessage>(`${this.apiUrl}/${itemId}/photos`, formData);
+  }
+
+  deletePhoto(itemId: number, photoId: number): Observable<ApiMessage> {
+    return this.http.delete<ApiMessage>(`${this.apiUrl}/${itemId}/photos/${photoId}`);
   }
 
   deleteItem(id: number): Observable<ApiMessage> {

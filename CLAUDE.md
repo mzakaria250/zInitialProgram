@@ -4,48 +4,93 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Full-stack application with a Node.js/Express REST API backend and an Angular 19 standalone-component frontend. The app manages a simple Items CRUD resource with SQLite persistence. Both frontend and backend share a consistent black & blue dark theme.
+**Zak Inventory** — A personal home inventory management system. Organize household items by location (hierarchical tree), attach photos and tags, and search across everything. Built with Node.js/Express backend and Angular 19 frontend, using SQLite for storage. Single-user, runs locally.
+
+### Business Requirements (v2)
+
+1. **Hierarchical locations** — Items are organized in a tree structure (e.g. Home > Living Room > My Desk > Drawer 1). Users can create, rename, and delete locations.
+2. **Photo support** — Each item can have multiple photos. Photos are uploaded via drag-and-drop or file picker, stored on disk, and displayed in a gallery.
+3. **Tag system** — Items can be tagged for easy categorization (e.g. #electronics, #office). Tags support autocomplete from existing tags.
+4. **Full-text search** — Search across item names, descriptions, and tags using SQLite FTS5.
+5. **Sidebar navigation** — Collapsible location tree always visible on the left side, with item counts per location.
+6. **Dark theme** — Consistent black & blue theme across frontend, backend admin, and all components.
 
 ## Architecture
 
 ```
 server/          → Express API (port 3000)
   src/
-    index.js     → App entry point, middleware setup, route mounting, admin HTML page
-    db.js        → SQLite database init (better-sqlite3), table creation, seeding
-    routes/      → Express route handlers (one file per resource)
+    index.js     → App entry point, middleware, route mounting, admin HTML page
+    db.js        → SQLite init, schema migration (PRAGMA user_version), FTS5 setup
+    routes/
+      items.js   → Items CRUD with photo upload (multer) and tag management
+      locations.js → Location tree CRUD (materialized path + parent_id)
+      tags.js    → Tag listing with item counts
+      search.js  → FTS5 full-text search
     config/      → Environment-based configuration
-  __tests__/     → Jest test files (supertest for HTTP assertions)
-  data.db        → SQLite database file (gitignored)
+  uploads/photos/ → Uploaded item photos (gitignored, served via express.static)
+  data.db        → SQLite database file (gitignored, auto-created on first run)
 
 client/          → Angular 19 app (port 4200)
   src/app/
-    pages/       → Routed page components
-    components/  → Reusable UI components
-    services/    → HTTP services (one per API resource)
-    models/      → TypeScript interfaces
-  proxy.conf.json → Dev proxy: /api/* → localhost:3000
+    pages/
+      location-browser/ → Main browsing page (breadcrumb + item grid)
+      item-detail/      → Item view with photo gallery
+      item-form/        → Create/edit item with photo upload & tag chips
+      search/           → Search results page
+    components/
+      location-tree/    → Sidebar collapsible tree
+    services/    → HTTP services (item, location, search, tag)
+    models/      → TypeScript interfaces (Item, Location, Photo, Tag)
+  src/assets/    → Static assets (logo)
+  proxy.conf.json → Dev proxy: /api/*, /uploads/* → localhost:3000
 ```
 
 **Key patterns:**
-- The Angular dev server proxies `/api/*` requests to the Express backend, so services use relative URLs like `/api/items` (no hardcoded host)
-- All Angular components use standalone component architecture (no NgModules)
-- App runs **zoneless** (`provideExperimentalZonelessChangeDetection`) — use `ChangeDetectorRef.markForCheck()` after async operations to trigger rendering
-- SQLite database uses WAL mode; prepared statements are defined at module level in route files
-- Backend has an **admin HTML page** at `GET /` showing all items in a table with a "DELETE ALL ITEMS" button
-- API responses for create/delete include a `message` field (e.g. `"Item was successfully added"`)
+- Angular dev server proxies `/api/*` and `/uploads/*` to the Express backend
+- All Angular components use standalone architecture (no NgModules)
+- App runs **zoneless** (`provideExperimentalZonelessChangeDetection`) — use `ChangeDetectorRef.markForCheck()` after async operations
+- SQLite uses WAL mode, foreign keys enabled, schema versioned via `PRAGMA user_version`
+- Location tree uses **materialized path** (`/1/3/7/`) + `parent_id` hybrid for efficient queries
+- Photos stored on disk at `server/uploads/photos/{uuid}.{ext}`, metadata in DB
+- FTS5 search with full rebuild approach (simple and reliable)
+- Database auto-creates all tables and seeds default locations on first run
+
+## Database Schema (v2)
+
+- **locations** — id, name, parent_id, path (materialized), sort_order, created_at
+- **items** — id, name, description, location_id (FK → locations), created_at, updated_at
+- **tags** — id, name (unique)
+- **item_tags** — item_id (FK), tag_id (FK) — many-to-many junction
+- **photos** — id, item_id (FK), filename, sort_order, created_at
+- **items_fts** — FTS5 virtual table (name, description, tags)
 
 ## API Endpoints
 
-- `GET /api/items` — list all items
-- `GET /api/items/:id` — get single item
-- `POST /api/items` — create item (returns `{ message, item }`)
-- `PUT /api/items/:id` — update item
-- `DELETE /api/items/:id` — delete item (returns `{ message }`)
-- `DELETE /api/items/all` — delete all items (returns `{ message }`)
+### Items (`/api/items`)
+- `GET /` — list items (?location_id, ?include_children, ?unsorted)
+- `GET /:id` — single item with tags, photos, location path
+- `POST /` — create item (multipart: name, description, location_id, tags[], photos[])
+- `PUT /:id` — update item metadata + tags (JSON)
+- `DELETE /:id` — delete item + photos from disk
+- `POST /:id/photos` — add photos to existing item
+- `DELETE /:id/photos/:photoId` — remove single photo
+- `DELETE /all` — delete all items
+
+### Locations (`/api/locations`)
+- `GET /` — full tree (nested JSON with item counts)
+- `GET /:id` — single location + breadcrumb + children
+- `POST /` — create (body: name, parent_id)
+- `PUT /:id` — rename
+- `PUT /:id/move` — move to new parent
+- `DELETE /:id` — delete (items become unsorted)
+
+### Other
+- `GET /api/search?q=&location_id=` — FTS5 search
+- `GET /api/tags` — all tags with item counts
 - `GET /api/health` — health check
 - `GET /` — admin HTML dashboard
-- `POST /admin/clear-all` — clear all items (form action, redirects to `/`)
+- `POST /admin/clear-all` — clear all items (form action)
 
 ## Commands
 
@@ -55,7 +100,6 @@ npm install              # Install dependencies
 npm run dev              # Start with nodemon (auto-reload)
 npm start                # Start without auto-reload
 npm test                 # Run Jest tests
-npm test -- --testPathPattern=items  # Run a single test file
 npm run lint             # ESLint
 ```
 
@@ -64,32 +108,26 @@ npm run lint             # ESLint
 npm install              # Install dependencies
 npm start                # ng serve (dev server at localhost:4200)
 npm run build            # Production build → dist/client/
-npm test                 # Karma tests (watch mode)
-npm run test:ci          # Karma tests (single run, headless)
+npm test                 # Karma tests
 npm run lint             # Angular lint
 ```
 
-### Running Both Together
-Start server (`npm run dev` in `server/`) and client (`npm start` in `client/`) in separate terminals.
-
-## Server Configuration
-
-Environment variables loaded via `dotenv` from `server/.env` (copy `.env.example` to `.env`):
-- `PORT` — API port (default: 3000)
-- `CLIENT_URL` — CORS origin (default: http://localhost:4200)
-
 ## UI Theme
 
-Both frontend and backend use a consistent **black & blue** dark theme:
-- Background: `#0a0a1a`, Cards/rows: `#0d1b2a`, Accent: `#1e90ff`
-- Mobile responsive (stacks vertically on screens < 480px)
-- Frontend shows toast notifications for add/delete/clear actions
+Consistent **black & blue** dark theme with ZAK brand logo:
+- Background: `#0a0a1a`, Cards: `#0d1b2a`, Accent: `#1e90ff`
+- Header: gradient with logo + search bar
+- Sidebar: collapsible location tree with item counts
+- Mobile responsive (sidebar stacks on < 768px)
+- Photo gallery with thumbnails, drag-and-drop upload
+- Tag chips with autocomplete
 
 ## Conventions
 
-- **Server exports `app`** from `index.js` for testability (supertest imports it directly without starting the listener)
-- **Angular uses standalone components** — no `app.module.ts`; providers are configured in `main.ts` via `bootstrapApplication`
-- **Zoneless change detection** — no `zone.js`; components must manually trigger change detection after async data updates
-- **Angular routing** defined in `app.routes.ts`, injected via `provideRouter`
-- **TypeScript strict mode** is enabled in the client (`tsconfig.json`)
-- **Database** is SQLite via `better-sqlite3` (synchronous API); `data.db` is gitignored
+- **Zoneless Angular** — no zone.js; must call `markForCheck()` after HTTP callbacks
+- **Standalone components** — no NgModules; providers in `main.ts`
+- **Materialized path** for location tree — enables subtree queries with `LIKE '/1/3/%'`
+- **Photo files** on disk, metadata in DB — `uploads/` is gitignored
+- **FTS rebuild** approach — full rebuild after mutations (simple, avoids content-sync issues)
+- **Schema migration** via `PRAGMA user_version` — checked on startup in `db.js`
+- **Server exports `app`** for testability (supertest)

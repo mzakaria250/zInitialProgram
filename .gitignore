@@ -6,3 +6,7 @@ dist/
 .angular/
 coverage/
 *.db
+*.db-shm
+*.db-wal
+server/uploads/photos/*
+!server/uploads/photos/.gitkeep
